@@ -29,8 +29,8 @@
 #include <cstdlib>
 #include <cstring>
 #include <unistd.h>
-
-#include "LMS1xx/LMS1xx.h"
+#include <iostream>
+#include <LMS1xx/LMS1xx.h>
 
 LMS1xx::LMS1xx() :
 	connected(false) {
@@ -198,19 +198,24 @@ void LMS1xx::scanContinous(int start) {
 		printf("%s\n", buf);
 	}
 
-	if (start == 0) {
-		for (int i = 0; i < 10; i++)
-			read(sockDesc, buf, 100);
-	}
+// Commented to avoid warning: Assignment of function parameter has no effect outside the function. [cppcheck: uselessAssignmentPtrArg]
+// Redmine ticket https://redmine/issues/5124
+
+    if (start == 0) {
+        for (int i = 0; i < 10; i++)
+            read(sockDesc, buf, 100);
+    }
 }
 
 void LMS1xx::getData(scanData& data) {
-	char buf[20000];
+  const int BUF_SIZE=20000;
+  char buf[BUF_SIZE];
 	fd_set rfds;
 	struct timeval tv;
 	int retval, len;
 	len = 0;
-
+  int startIndex = -1;
+  int endIndex = -1;
 	do {
 		FD_ZERO(&rfds);
 		FD_SET(sockDesc, &rfds);
@@ -218,15 +223,52 @@ void LMS1xx::getData(scanData& data) {
 		tv.tv_sec = 0;
 		tv.tv_usec = 50000;
 		retval = select(sockDesc + 1, &rfds, NULL, NULL, &tv);
-		if (retval) {
-			len += read(sockDesc, buf + len, 20000 - len);
+    int readBytes = 0;
+    if (retval) {
+      readBytes = read(sockDesc, buf + len, BUF_SIZE - len);
+      len += readBytes;
 		}
-	} while ((buf[0] != 0x02) || (buf[len - 1] != 0x03));
+    if(debug)
+      std::cout << " readBytes=" << readBytes << ", len=" << len << std::endl;
+    if(readBytes == 0 && len == BUF_SIZE )
+    {
+      std::cout << " ERROR buffer is full " << std::endl;
+      printf("%s\n", buf);
+      std::cout << " clearing buffer " << std::endl;
+      memset(buf,0, BUF_SIZE);
+      len = 0;
+    }
+    for( int ii = 0; ii < len; ++ii )
+    {
+      //Initial byte
+      if(startIndex == -1 && buf[ii] ==  0x02 )
+      {
+        if(debug)
+          std::cout << "found initial byte at [" << ii << "]" << std::endl;
+        startIndex = ii;
+        endIndex = -1;
+      }
+      //End byte
+      else if(startIndex != -1 && buf[ii] == 0x03 )
+      {
+        if(debug)
+          std::cout << "found end byte at [" << ii << "]" << std::endl;
+        endIndex = ii;
+        break;
+      }
+    }
+  } while (startIndex==-1 || endIndex==-1); // ((buf[0] != 0x02) || (buf[len - 1] != 0x03));
 
-	//	if (debug)
-	//		std::cout << "scan data recieved" << std::endl;
-	buf[len - 1] = 0;
-	char* tok = strtok(buf, " "); //Type of command
+  char buf_tmp[BUF_SIZE];
+  len = endIndex - startIndex;
+  memcpy(buf_tmp, buf+startIndex, len);
+  if (debug)
+  {
+    std::cout << "scan data recieved size : " << len << std::endl;
+    printf("%s\n", buf_tmp);
+  }
+  buf_tmp[len - 1] = 0;
+  char* tok = strtok(buf_tmp, " "); //Type of command
 	tok = strtok(NULL, " "); //Command
 	tok = strtok(NULL, " "); //VersionNumber
 	tok = strtok(NULL, " "); //DeviceNumber

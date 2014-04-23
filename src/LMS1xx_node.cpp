@@ -5,6 +5,7 @@
 #include "sensor_msgs/LaserScan.h"
 
 #define DEG2RAD M_PI/180.0
+#define RAD2DEG 180.0/M_PI
 
 int main(int argc, char **argv)
 {
@@ -18,7 +19,11 @@ int main(int argc, char **argv)
   // parameters
   std::string host;
   std::string frame_id;
-
+  std::string topic;
+  double range_max = 20.0;
+  double start_angle = -135.0*DEG2RAD;
+  double end_angle   =  135.0*DEG2RAD;
+  double frequency   = 25.0;
   ros::init(argc, argv, "lms1xx");
   ros::NodeHandle nh;
   ros::NodeHandle n("~");
@@ -26,6 +31,10 @@ int main(int argc, char **argv)
 
   n.param<std::string>("host", host, "192.168.1.2");
   n.param<std::string>("frame_id", frame_id, "laser");
+  n.param<double>("range_max", range_max, 20.0);
+  n.param<double>("start_angle", start_angle,-135.0*DEG2RAD);
+  n.param<double>("end_angle", end_angle,135.0*DEG2RAD);
+  n.param<double>("frequency", frequency,25.0);
 
   ROS_INFO("connecting to laser at : %s", host.c_str());
   // initialize hardware
@@ -37,21 +46,6 @@ int main(int argc, char **argv)
 
     laser.login();
     cfg = laser.getScanCfg();
-
-    scan_msg.header.frame_id = frame_id;
-
-    scan_msg.range_min = 0.01;
-    scan_msg.range_max = 20.0;
-
-    scan_msg.scan_time = 100.0/cfg.scaningFrequency;
-
-    scan_msg.angle_increment = (double)cfg.angleResolution/10000.0 * DEG2RAD;
-    scan_msg.angle_min = (double)cfg.startAngle/10000.0 * DEG2RAD - M_PI/2;
-    scan_msg.angle_max = (double)cfg.stopAngle/10000.0 * DEG2RAD - M_PI/2;
-
-    std::cout << "resolution : " << (double)cfg.angleResolution/10000.0 << " deg " << std::endl;
-    std::cout << "frequency : " << (double)cfg.scaningFrequency/100.0 << " Hz " << std::endl;
-
     int num_values;
     if (cfg.angleResolution == 2500)
     {
@@ -67,8 +61,69 @@ int main(int argc, char **argv)
       return 0;
     }
 
-    scan_msg.time_increment = scan_msg.scan_time/num_values;
+    double sensor_start_angle = cfg.startAngle/10000.0 * DEG2RAD - M_PI/2.0;
+    double sensor_end_angle   = cfg.stopAngle/10000.0 * DEG2RAD - M_PI/2.0;
 
+    ROS_INFO_STREAM("\n\nLaser measurement config received from the sensor :");
+    ROS_INFO("\t sensor start angle %.2f [deg] - %.6f [rad]", cfg.startAngle/10000.0 - 90, sensor_start_angle );
+    ROS_INFO("\t sensor stop  angle %.2f [deg] - %.6f [rad]", cfg.stopAngle/10000.0  - 90, sensor_end_angle );
+    ROS_INFO("\t sensor angle resolution %.2f [deg] - %.6f [rad]", cfg.angleResolution/10000.0,  cfg.angleResolution/10000.0 * DEG2RAD);
+    ROS_INFO("\t sensor scan  frequency %.2f [hz]", cfg.scaningFrequency/100.0);
+    ROS_INFO("\t sensor num   readings  %d", num_values);
+
+    /// Setting fields of scan msg
+    scan_msg.header.frame_id = frame_id;
+    scan_msg.range_min = 0.01;
+    scan_msg.range_max = range_max;
+
+    int frequency_reducer = static_cast<int>( cfg.scaningFrequency/(100.0 * frequency) );
+    frequency = cfg.scaningFrequency/(100.0* frequency_reducer);
+    scan_msg.scan_time = 1.0/frequency;
+    scan_msg.angle_increment = cfg.angleResolution/10000.0 * DEG2RAD;
+
+    /// Swap start/end angle in case of inverted sign
+    if(start_angle > end_angle)
+    {
+      double tmp = start_angle;
+      start_angle = end_angle;
+      end_angle = tmp;
+    }
+
+    /// Check if sensor starting angle is greater than requested starting angle
+    if(start_angle < sensor_start_angle )
+      start_angle = sensor_start_angle;
+
+    /// Check if sensor ending angle is smaller than requested ending angle
+    if(end_angle > sensor_end_angle)
+      end_angle = sensor_end_angle;
+
+    /// Adjusting min max angle values considering angular resolution
+    start_angle = sensor_start_angle + scan_msg.angle_increment* (static_cast<int>( ( fabs(start_angle - sensor_start_angle)) /scan_msg.angle_increment ) + 1);
+    end_angle   = sensor_end_angle - scan_msg.angle_increment* ( static_cast<int>( ( fabs(sensor_end_angle - end_angle)) /scan_msg.angle_increment ) + 1);
+
+    /// Setting min max angle values in ros scan msg
+    scan_msg.angle_min = start_angle;
+    scan_msg.angle_max = end_angle;
+
+
+
+    int filtered_num_values = static_cast<int>((end_angle - start_angle)/scan_msg.angle_increment ) + 1;
+//    ROS_INFO("Sensor num of readings %d, filtered num of readings %d", num_values, filtered_num_values);
+    num_values = filtered_num_values;
+
+    ROS_INFO_STREAM("\n\nLaser measurement output from the driver :");
+
+    ROS_INFO("\t msg start angle %.2f [deg] - %.6f [rad]", start_angle*RAD2DEG, start_angle);
+    ROS_INFO("\t msg stop  angle %.2f [deg - %.6f [rad]", end_angle*RAD2DEG, end_angle);
+    ROS_INFO("\t msg angle resolution %.2f [deg] - %.6f [rad]", cfg.angleResolution/10000.0, scan_msg.angle_increment);
+    ROS_INFO("\t msg topic frequency %.2f [hz]", frequency);
+    ROS_INFO("\t msg min   range %.2f [m]", scan_msg.range_min);
+    ROS_INFO("\t msg max   range %.2f [m]", scan_msg.range_max);
+    ROS_INFO("\t msg num   readings %d", num_values);
+
+    ROS_INFO("\t frequency reduction factor is %d", frequency_reducer);
+
+    scan_msg.time_increment = scan_msg.scan_time/num_values;
     scan_msg.ranges.resize(num_values);
     scan_msg.intensities.resize(num_values);
 
@@ -96,6 +151,8 @@ int main(int argc, char **argv)
 
     laser.scanContinous(1);
 
+    int counter = -1;
+
     while (ros::ok())
     {
       ros::Time start = ros::Time::now();
@@ -105,14 +162,38 @@ int main(int argc, char **argv)
 
       laser.getData(data);
 
+      /// frequency publishing reduction
+      counter++;
+      if(counter%frequency_reducer != 0)
+        continue;
+
+      double angle = sensor_start_angle;
+
+      int j = 0;
       for (int i = 0; i < data.dist_len1; i++)
       {
-        scan_msg.ranges[i] = data.dist1[i] * 0.001;
+        if( angle - scan_msg.angle_min < -1e-4 || angle - scan_msg.angle_max > 1e-4 )
+        {
+          angle += scan_msg.angle_increment;
+          continue;
+        }
+        scan_msg.ranges[j] = data.dist1[i] * 0.001;
+        angle += scan_msg.angle_increment;
+        j++;
       }
 
+      angle = sensor_start_angle;
+      j = 0;
       for (int i = 0; i < data.rssi_len1; i++)
       {
-        scan_msg.intensities[i] = data.rssi1[i];
+        if(angle - scan_msg.angle_min < -1e-4 || angle - scan_msg.angle_max > 1e-4)
+        {
+          angle += scan_msg.angle_increment;
+          continue;
+        }
+        scan_msg.intensities[j] = data.rssi1[i];
+        angle += scan_msg.angle_increment;
+        j++;
       }
 
       scan_pub.publish(scan_msg);
