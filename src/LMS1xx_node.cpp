@@ -19,7 +19,6 @@ int main(int argc, char **argv)
   // parameters
   std::string host;
   std::string frame_id;
-  std::string topic;
   double range_max = 20.0;
   double start_angle = -135.0*DEG2RAD;
   double end_angle   =  135.0*DEG2RAD;
@@ -27,7 +26,7 @@ int main(int argc, char **argv)
   ros::init(argc, argv, "lms1xx");
   ros::NodeHandle nh;
   ros::NodeHandle n("~");
-  ros::Publisher scan_pub = nh.advertise<sensor_msgs::LaserScan>("scan", 1);
+
 
   n.param<std::string>("host", host, "192.168.1.2");
   n.param<std::string>("frame_id", frame_id, "laser");
@@ -36,7 +35,9 @@ int main(int argc, char **argv)
   n.param<double>("end_angle", end_angle,135.0*DEG2RAD);
   n.param<double>("frequency", frequency,25.0);
 
+  ros::Publisher scan_pub = nh.advertise<sensor_msgs::LaserScan>("scan", 1);
   ROS_INFO("connecting to laser at : %s", host.c_str());
+
   // initialize hardware
   laser.connect(host);
 

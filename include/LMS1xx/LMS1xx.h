@@ -103,8 +103,6 @@ typedef struct _scanDataCfg {
 	 */
 	bool deviceName;
 	
-	bool timestamp;
-
 	/*!
 	 * @brief Output interval.
 	 * Defines which scan is output.
