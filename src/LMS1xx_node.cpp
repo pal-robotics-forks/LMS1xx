@@ -109,7 +109,7 @@ int main(int argc, char **argv)
 
 
     int filtered_num_values = static_cast<int>((end_angle - start_angle)/scan_msg.angle_increment ) + 1;
-//    ROS_INFO("Sensor num of readings %d, filtered num of readings %d", num_values, filtered_num_values);
+    //    ROS_INFO("Sensor num of readings %d, filtered num of readings %d", num_values, filtered_num_values);
     num_values = filtered_num_values;
 
     ROS_INFO_STREAM("\n\nLaser measurement output from the driver :");
