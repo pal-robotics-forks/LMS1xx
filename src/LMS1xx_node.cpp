@@ -1,8 +1,12 @@
+#include <ros/ros.h>
+#include <sensor_msgs/LaserScan.h>
+
+#include <LMS1xx/LMS1xx.h>
+
+#include <limits>
+
 #include <csignal>
 #include <cstdio>
-#include <LMS1xx/LMS1xx.h>
-#include "ros/ros.h"
-#include "sensor_msgs/LaserScan.h"
 
 #define DEG2RAD M_PI/180.0
 #define RAD2DEG 180.0/M_PI
@@ -178,7 +182,10 @@ int main(int argc, char **argv)
           angle += scan_msg.angle_increment;
           continue;
         }
-        scan_msg.ranges[j] = data.dist1[i] * 0.001;
+        if( data.dist1[i] == 0.0 )
+          scan_msg.ranges[j] = std::numeric_limits<float>::infinity();
+        else
+          scan_msg.ranges[j] = data.dist1[i] * 0.001;
         angle += scan_msg.angle_increment;
         j++;
       }
